@@ -6,12 +6,16 @@ import os
 
 # --- Настройки ---
 API_TOKEN = '8151372161:AAFVYcCOTZ-Cs2grVb6qGovKQiVZZAVJrWM'  # Ваш токен бота
-ADMIN_ID = 1882992222  # Установите ID администратора
+ADMIN_IDS = [1882992222, 412411542] 
 phrases_file = 'cute_phrases.txt'
 schedule_time_file = 'schedule_time.txt'
 default_schedule_time = "14:01"
 ADMIN_CHAT_ID = 1882992222 # Установите ID чата администратора (можно совпадать с ADMIN_ID)
 
+
+# Проверка, является ли пользователь администратором
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
 
 # --- Функции ---
 def load_phrases():
@@ -88,41 +92,44 @@ def unsubscribe(message):
     else:
         bot.send_message(message.chat.id, "Ты не подписан на рассылку милых фраз.")
 
-@bot.message_handler(commands=['admin'], func=lambda message: message.from_user.id == ADMIN_ID)
+# --- Обработчики команд ---
+@bot.message_handler(commands=['admin'], func=lambda message: is_admin(message.from_user.id))
 def admin_panel(message):
     bot.send_message(message.chat.id,
-                     f"Текущее время рассылки: {scheduled_time}\n\nЧтобы изменить время, используйте команду /settime ЧЧ:ММ\n\n/sendall <текст> - отправить сообщение всем подписчикам.")
+                     f"Текущее время рассылки: {scheduled_time}\n\nЧтобы изменить время, используйте команду /settime ЧЧ:ММ\n\n/sendall <время> <текст> - отправить сообщение всем подписчикам в указанное время.")
 
-@bot.message_handler(commands=['settime'], func=lambda message: message.from_user.id == ADMIN_ID)
-def set_schedule_time(message):
-    global scheduled_time
-    try:
-        new_time = message.text.split()[1]
-        time.strptime(new_time, "%H:%M")  # Проверка формата времени
-        scheduled_time = new_time
-        save_schedule_time(scheduled_time)
-        schedule.clear()
-        schedule.every().day.at(scheduled_time).do(send_cute_phrases)
-        bot.send_message(message.chat.id, f"Время рассылки установлено на {scheduled_time}")
-        send_admin_message(f"Время рассылки изменено на: {scheduled_time}")
-    except (ValueError, IndexError):
-        bot.send_message(message.chat.id, "Неверный формат времени. Используйте ЧЧ:ММ (например, 10:30)")
-
-@bot.message_handler(commands=['sendall'], func=lambda message: message.from_user.id == ADMIN_ID)
+@bot.message_handler(commands=['sendall'], func=lambda message: is_admin(message.from_user.id))
 def send_all_message(message):
     try:
-        text = message.text.split(None, 1)[1]  # Получаем текст после /sendall
-        count = 0
-        for subscriber in subscribers:
-            try:
-                bot.send_message(subscriber, text)
-                count += 1
-            except telebot.apihelper.ApiTelegramException as e:
-                print(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
-        bot.send_message(message.chat.id, f"Сообщение успешно отправлено {count} подписчикам.")
+        parts = message.text.split(None, 2)  # Разделяем на части
+        if len(parts) < 2:
+            raise IndexError
+        
+        # Если указан только текст, отправляем сразу, иначе планируем
+        if len(parts) == 3:
+            schedule_time = parts[1]
+            text = parts[2]
+            time.strptime(schedule_time, "%H:%M")  # Проверка формата времени
+            schedule.every().day.at(schedule_time).do(lambda: send_bulk_message(text))
+            bot.send_message(message.chat.id, f"Сообщение будет отправлено всем подписчикам в {schedule_time}.")
+        else:
+            text = parts[1]
+            count = send_bulk_message(text)
+            bot.send_message(message.chat.id, f"Сообщение успешно отправлено {count} подписчикам.")
+        
         send_admin_message(f"Администратор отправил сообщение всем подписчикам: {text}")
-    except IndexError:
-        bot.send_message(message.chat.id, "Используйте команду /sendall <текст> для отправки сообщения.")
+    except (ValueError, IndexError):
+        bot.send_message(message.chat.id, "Используйте команду /sendall <время (ЧЧ:ММ)> <текст> для запланированной отправки или /sendall <текст> для немедленной отправки.")
+
+def send_bulk_message(text):
+    count = 0
+    for subscriber in subscribers:
+        try:
+            bot.send_message(subscriber, text)
+            count += 1
+        except telebot.apihelper.ApiTelegramException as e:
+            print(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
+    return count
 
 
 @bot.message_handler(commands=['loadphrases'], func=lambda message: message.from_user.id == ADMIN_ID)
