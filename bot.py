@@ -251,8 +251,8 @@ def run_schedule():
     logger.info("Запуск планировщика...")
     while True:
         schedule.run_pending()
-        time.sleep(1)
-        logger.debug("Проверка запланированных задач...")  # Логирование при каждой проверке
+        time.sleep(1)  # Спим 1 секунду между проверками
+        logger.debug("Проверка запланированных задач...")
 
 # --- Запуск ---
 if __name__ == "__main__":
