@@ -54,6 +54,10 @@ def send_cute_phrases():
     cute_phrases = load_phrases()
     logger.info(f"Отправка милых фраз подписчикам. Количество фраз: {len(cute_phrases)}")
 
+    if not cute_phrases:
+        logger.warning("Список милых фраз пуст. Сообщения не будут отправлены.")
+        return
+
     for subscriber, index in list(subscribers.items()):
         if index < len(cute_phrases):
             phrase = cute_phrases[index]
@@ -146,6 +150,11 @@ def set_schedule_time(message):
         scheduled_time = new_time
         save_schedule_time()  # Сохраняем новое время в файл
         bot.send_message(message.chat.id, f"Время рассылки успешно обновлено на {scheduled_time}.")
+        
+        # Дополнительно: очищаем старые задачи и перезапланируем новую
+        schedule.clear()  # Очищаем все запланированные задачи
+        schedule.every().day.at(scheduled_time).do(send_cute_phrases)  # Запланируем новую задачу для отправки
+        logger.info(f"Запланировано новое время для отправки фраз: {scheduled_time}")
     except ValueError:
         bot.send_message(message.chat.id, "Некорректный формат времени. Убедитесь, что вы используете формат ЧЧ:ММ.")
 
