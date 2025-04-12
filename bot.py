@@ -68,7 +68,7 @@ def send_cute_phrases():
             try:
                 bot.send_message(subscriber, "Милые фразы на сегодня закончились! Подпишись снова через /subscribe, чтобы получать новые фразы.")
                 del subscribers[subscriber]
-                save_subscribers()  # Удаляем подписчика из сохраненного списка
+                save_subscribers()
                 logger.info(f"Пользователь {subscriber} удален из подписчиков: фразы закончились.")
             except telebot.apihelper.ApiTelegramException as e:
                 logger.error(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
@@ -101,7 +101,7 @@ def start_message(message):
 def subscribe(message):
     if message.chat.id not in subscribers:
         subscribers[message.chat.id] = 0
-        save_subscribers()  # Сохраняем подписчиков после добавления
+        save_subscribers()
         bot.send_message(message.chat.id, "Поздравляю! Теперь ты будешь получать милые фразы каждый день.")
         send_admin_message(f"Новый подписчик: {message.chat.id}")
         logger.info(f"Пользователь {message.chat.id} подписался.")
@@ -112,7 +112,7 @@ def subscribe(message):
 def unsubscribe(message):
     if message.chat.id in subscribers:
         del subscribers[message.chat.id]
-        save_subscribers()  # Сохраняем подписчиков после отписки
+        save_subscribers()
         bot.send_message(message.chat.id, "Ты отписался от рассылки милых фраз.")
         send_admin_message(f"Пользователь отписался: {message.chat.id}")
         logger.info(f"Пользователь {message.chat.id} отписался.")
@@ -160,6 +160,7 @@ def send_all_message(message):
             schedule_time = parts[1]
             text = parts[2]
             time.strptime(schedule_time, "%H:%M")
+
             # Запланировать отправку
             schedule.every().day.at(schedule_time).do(lambda t=text: send_bulk_message(t))
             bot.send_message(message.chat.id, f"Сообщение будет отправлено всем подписчикам в {schedule_time}.")
@@ -194,16 +195,13 @@ def load_new_phrases(message):
 
 @bot.message_handler(content_types=['document'], func=lambda message: is_admin(message.from_user.id))
 def handle_document(message):
-    # Проверяем, что файл является текстовым
     if message.document.mime_type == 'text/plain':
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
 
-        # Сохраняем текстовые фразы в файл
         with open(phrases_file, 'wb') as new_file:
             new_file.write(downloaded_file)
 
-        # Обновляем список фраз
         global cute_phrases
         cute_phrases = load_phrases()  # Загружаем фразы сразу после сохранения
         bot.send_message(message.chat.id, f"Фразы успешно обновлены. Количество фраз: {len(cute_phrases)}")
@@ -223,10 +221,8 @@ def list_phrases(message):
 def handle_photo(message):
     """Обрабатываем загруженные изображения от администратора и запрашиваем текст."""
     global sent_image_id
-    sent_image_id = message.photo[-1].file_id  # Получаем ID фото самого высокого качества
+    sent_image_id = message.photo[-1].file_id
     bot.send_message(message.chat.id, "Теперь введите текст для отправки всем подписчикам.")
-
-    # Сохраняем состояние, которое говорит о том, что администратор хочет отправить фото
     bot.register_next_step_handler(message, send_photo_message)
 
 def send_photo_message(message):
@@ -251,8 +247,7 @@ def run_schedule():
     logger.info("Запуск планировщика...")
     while True:
         schedule.run_pending()
-        time.sleep(1)  # Спим 1 секунду между проверками
-        logger.debug("Проверка запланированных задач...")
+        time.sleep(1)
 
 # --- Запуск ---
 if __name__ == "__main__":
