@@ -78,6 +78,10 @@ def send_admin_message(text):
     except telebot.apihelper.ApiTelegramException as e:
         logger.error(f"Ошибка отправки сообщения администратору: {e}")
 
+def save_schedule_time():
+    with open(schedule_time_file, 'w') as f:
+        f.write(scheduled_time)
+
 # --- Инициализация ---
 bot = telebot.TeleBot(API_TOKEN)
 cute_phrases = load_phrases()
@@ -120,7 +124,24 @@ def list_subscribers(message):
 
 @bot.message_handler(commands=['admin'], func=lambda message: is_admin(message.from_user.id))
 def admin_panel(message):
-    bot.send_message(message.chat.id, f"Текущее время рассылки: {scheduled_time}\n\nЧтобы изменить время, используйте команду /settime ЧЧ:ММ\n\n/sendall <время> <текст> - отправить сообщение всем подписчикам в указанное время.")
+    bot.send_message(message.chat.id, f"Текущее время рассылки: {scheduled_time}\n\nЧтобы изменить время, используйте команду /settime ЧЧ:ММ\n\n/sendall <время (ЧЧ:ММ)> <текст> - отправить сообщение всем подписчикам в указанное время.")
+
+@bot.message_handler(commands=['settime'], func=lambda message: is_admin(message.from_user.id))
+def set_schedule_time(message):
+    global scheduled_time
+    parts = message.text.split()
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Пожалуйста, укажите время в формате ЧЧ:ММ.")
+        return
+
+    new_time = parts[1]
+    try:
+        time.strptime(new_time, "%H:%M")  # Проверка корректности формата времени
+        scheduled_time = new_time
+        save_schedule_time()  # Сохраняем новое время в файл
+        bot.send_message(message.chat.id, f"Время рассылки успешно обновлено на {scheduled_time}.")
+    except ValueError:
+        bot.send_message(message.chat.id, "Некорректный формат времени. Убедитесь, что вы используете формат ЧЧ:ММ.")
 
 @bot.message_handler(commands=['sendall'], func=lambda message: is_admin(message.from_user.id))
 def send_all_message(message):
@@ -133,7 +154,8 @@ def send_all_message(message):
             schedule_time = parts[1]
             text = parts[2]
             time.strptime(schedule_time, "%H:%M")
-            schedule.every().day.at(schedule_time).do(lambda: send_bulk_message(text))
+            # Запланировать отправку
+            schedule.every().day.at(schedule_time).do(lambda t=text: send_bulk_message(t))
             bot.send_message(message.chat.id, f"Сообщение будет отправлено всем подписчикам в {schedule_time}.")
         else:
             text = parts[1]
@@ -172,9 +194,10 @@ def handle_document(message):
         with open(phrases_file, 'wb') as new_file:
             new_file.write(downloaded_file)
 
-        # Перезагружаем фразы и подтверждаем
-        load_new_phrases(message)
-        bot.send_message(message.chat.id, "Фразы успешно обновлены из загруженного файла.")
+        # Обновляем список фраз
+        global cute_phrases
+        cute_phrases = load_phrases()  # Загружаем фразы сразу после сохранения
+        bot.send_message(message.chat.id, f"Фразы успешно обновлены. Количество фраз: {len(cute_phrases)}")
         send_admin_message("Новый список фраз был загружен.")
     else:
         bot.send_message(message.chat.id, "Пожалуйста, загрузите текстовый файл с фразами.")
@@ -186,6 +209,33 @@ def list_phrases(message):
         bot.send_message(message.chat.id, f"Текущие фразы:\n{phrase_list}")
     else:
         bot.send_message(message.chat.id, "Список фраз пуст.")
+
+@bot.message_handler(content_types=['photo'], func=lambda message: is_admin(message.from_user.id))
+def handle_photo(message):
+    """Обрабатываем загруженные изображения от администратора и запрашиваем текст."""
+    global sent_image_id
+    sent_image_id = message.photo[-1].file_id  # Получаем ID фото самого высокого качества
+    bot.send_message(message.chat.id, "Теперь введите текст для отправки всем подписчикам.")
+
+    # Сохраняем состояние, которое говорит о том, что администратор хочет отправить фото
+    bot.register_next_step_handler(message, send_photo_message)
+
+def send_photo_message(message):
+    """Отправляет фото и текст всем подписчикам."""
+    text = message.text
+    if not text:
+        bot.send_message(message.chat.id, "Пожалуйста, введите текст, который хотите отправить вместе с фото.")
+        return
+
+    count = 0
+    for subscriber in subscribers:
+        try:
+            bot.send_photo(subscriber, sent_image_id, caption=text)
+            count += 1
+        except telebot.apihelper.ApiTelegramException as e:
+            logger.error(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
+
+    bot.send_message(message.chat.id, f"Фото и сообщение успешно отправлены {count} подписчикам.")
 
 # --- Планировщик ---
 def run_schedule():
