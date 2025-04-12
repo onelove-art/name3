@@ -6,11 +6,11 @@ import os
 import logging
 
 # Настройки логирования
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', filename='bot.log', filemode='a')
 logger = logging.getLogger(__name__)
 
 # --- Настройки ---
-API_TOKEN = '8151372161:AAFVYcCOTZ-Cs2grVb6qGovKQiVZZAVJrWM'  # Ваш токен бота
+API_TOKEN = '8151372161:AAFVYcCOTZ-Cs2grVb6qGovKQiVZZAVJrWM'  # Замените на ваш токен бота
 ADMIN_IDS = [1882992222, 412411542]  # ID администраторов
 phrases_file = 'cute_phrases.txt'
 schedule_time_file = 'schedule_time.txt'
@@ -52,6 +52,7 @@ def save_subscribers():
 def send_cute_phrases():
     global cute_phrases
     cute_phrases = load_phrases()
+    logger.info(f"Отправка милых фраз подписчикам. Количество фраз: {len(cute_phrases)}")
 
     for subscriber, index in list(subscribers.items()):
         if index < len(cute_phrases):
@@ -60,6 +61,7 @@ def send_cute_phrases():
                 bot.send_message(subscriber, phrase)
                 subscribers[subscriber] += 1
                 save_subscribers()  # Сохраняем подписчиков после успешной отправки
+                logger.info(f"Фраза отправлена пользователю {subscriber}: {phrase}")
             except telebot.apihelper.ApiTelegramException as e:
                 logger.error(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
         else:
@@ -67,6 +69,7 @@ def send_cute_phrases():
                 bot.send_message(subscriber, "Милые фразы на сегодня закончились! Подпишись снова через /subscribe, чтобы получать новые фразы.")
                 del subscribers[subscriber]
                 save_subscribers()  # Удаляем подписчика из сохраненного списка
+                logger.info(f"Пользователь {subscriber} удален из подписчиков: фразы закончились.")
             except telebot.apihelper.ApiTelegramException as e:
                 logger.error(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
 
@@ -81,6 +84,7 @@ def send_admin_message(text):
 def save_schedule_time():
     with open(schedule_time_file, 'w') as f:
         f.write(scheduled_time)
+    logger.info(f"Новое время рассылки сохранено: {scheduled_time}")
 
 # --- Инициализация ---
 bot = telebot.TeleBot(API_TOKEN)
@@ -100,6 +104,7 @@ def subscribe(message):
         save_subscribers()  # Сохраняем подписчиков после добавления
         bot.send_message(message.chat.id, "Поздравляю! Теперь ты будешь получать милые фразы каждый день.")
         send_admin_message(f"Новый подписчик: {message.chat.id}")
+        logger.info(f"Пользователь {message.chat.id} подписался.")
     else:
         bot.send_message(message.chat.id, "Ты уже подписан на рассылку милых фраз.")
 
@@ -110,6 +115,7 @@ def unsubscribe(message):
         save_subscribers()  # Сохраняем подписчиков после отписки
         bot.send_message(message.chat.id, "Ты отписался от рассылки милых фраз.")
         send_admin_message(f"Пользователь отписался: {message.chat.id}")
+        logger.info(f"Пользователь {message.chat.id} отписался.")
     else:
         bot.send_message(message.chat.id, "Ты не подписан на рассылку милых фраз.")
 
@@ -157,14 +163,16 @@ def send_all_message(message):
             # Запланировать отправку
             schedule.every().day.at(schedule_time).do(lambda t=text: send_bulk_message(t))
             bot.send_message(message.chat.id, f"Сообщение будет отправлено всем подписчикам в {schedule_time}.")
+            logger.info(f"Запланировано отправка сообщения всем подписчикам в {schedule_time}.")
         else:
             text = parts[1]
             count = send_bulk_message(text)
             bot.send_message(message.chat.id, f"Сообщение успешно отправлено {count} подписчикам.")
 
         send_admin_message(f"Администратор отправил сообщение всем подписчикам: {text}")
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as e:
         bot.send_message(message.chat.id, "Используйте команду /sendall <время (ЧЧ:ММ)> <текст> для запланированной отправки или /sendall <текст> для немедленной отправки.")
+        logger.error(f"Ошибка при попытке отправить сообщение: {e}")
 
 def send_bulk_message(text):
     count = 0
@@ -174,6 +182,7 @@ def send_bulk_message(text):
             count += 1
         except telebot.apihelper.ApiTelegramException as e:
             logger.error(f"Ошибка отправки сообщения пользователю {subscriber}: {e}")
+    logger.info(f"Сообщения отправлено: {count} подписчикам")
     return count
 
 @bot.message_handler(commands=['loadphrases'], func=lambda message: is_admin(message.from_user.id))
@@ -239,12 +248,17 @@ def send_photo_message(message):
 
 # --- Планировщик ---
 def run_schedule():
-    schedule.every().day.at(scheduled_time).do(send_cute_phrases)
+    logger.info("Запуск планировщика...")
     while True:
         schedule.run_pending()
         time.sleep(1)
+        logger.debug("Проверка запланированных задач...")  # Логирование при каждой проверке
 
 # --- Запуск ---
 if __name__ == "__main__":
     threading.Thread(target=run_schedule, daemon=True).start()
-    bot.polling(non_stop=True)
+    logger.info("Бот запущен и ожидает команд...")
+    try:
+        bot.polling(non_stop=True)
+    except Exception as e:
+        logger.error(f"Ошибка при запущенном боте: {e}")
